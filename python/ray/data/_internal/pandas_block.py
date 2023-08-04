@@ -1,4 +1,3 @@
-import bisect
 import collections
 import heapq
 from typing import (
@@ -365,19 +364,51 @@ class PandasBlockAccessor(TableBlockAccessor):
         # in descending order and we only need to count the number of items
         # *greater than* the boundary value instead.
 
-        def find_partition_index(records, boundary, sort_key):
-            if sort_key.get_descending():
-                return len(records) - bisect.bisect_left(records[::-1], boundary)
-            else:
-                return bisect.bisect_left(records, boundary)
+        def find_partition_index(
+            table: "pandas.DataFrame", desired: List[Any], sort_key
+        ) -> int:
+            columns, ascending = sort_key.to_pandas_sort_args()
+
+            left, right = 0, len(table.index)
+            for i in range(len(desired)):
+                if left == right:
+                    return right
+                col_name = columns[i]
+                col_vals = table[col_name].to_numpy()[left:right]
+                desired_val = desired[i]
+
+                prevleft = left
+                if ascending[i] is False:
+                    left = prevleft + (
+                        len(col_vals)
+                        - np.searchsorted(
+                            col_vals,
+                            desired_val,
+                            side="right",
+                            sorter=np.arange(len(col_vals) - 1, -1, -1),
+                        )
+                    )
+                    right = prevleft + (
+                        len(col_vals)
+                        - np.searchsorted(
+                            col_vals,
+                            desired_val,
+                            side="left",
+                            sorter=np.arange(len(col_vals) - 1, -1, -1),
+                        )
+                    )
+                else:
+                    left = prevleft + np.searchsorted(
+                        col_vals, desired_val, side="left"
+                    )
+                    right = prevleft + np.searchsorted(
+                        col_vals, desired_val, side="right"
+                    )
+            return right
 
         def searchsorted(table, boundaries, sort_key):
-            records = list(
-                table[sort_key.get_columns()].itertuples(index=False, name=None)
-            )
-
             return [
-                find_partition_index(records, boundary, sort_key)
+                find_partition_index(table, boundary, sort_key)
                 for boundary in boundaries
             ]
 

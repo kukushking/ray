@@ -46,7 +46,7 @@ def generate_sort_fn(
         # Sample boundaries for sort key.
         boundaries = SortTaskSpec.sample_boundaries(blocks, sort_key, num_outputs)
         _, ascending = sort_key.to_pandas_sort_args()
-        if not ascending:
+        if not ascending[0]:
             boundaries.reverse()
         sort_spec = SortTaskSpec(boundaries=boundaries, sort_key=sort_key)
 

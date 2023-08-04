@@ -1,4 +1,3 @@
-import bisect
 import collections
 import heapq
 import random
@@ -435,27 +434,56 @@ class ArrowBlockAccessor(TableBlockAccessor):
         # in descending order and we only need to count the number of items
         # *greater than* the boundary value instead.
 
-        def find_partition_index(records, boundary, sort_key):
-            if sort_key.get_descending():
-                return len(records) - bisect.bisect_left(records[::-1], boundary)
-            else:
-                return bisect.bisect_left(records, boundary)
+        def find_partition_index(
+            table: "pyarrow.Table", desired: List[Any], sort_key
+        ) -> int:
+            normalized_key = sort_key.to_arrow_sort_args()
+
+            left, right = 0, len(table)
+            for i in range(len(desired)):
+                if left == right:
+                    return right
+                col_name = normalized_key[i][0]
+                col_vals = table[col_name].to_numpy()[left:right]
+                desired_val = desired[i]
+
+                prevleft = left
+                if not normalized_key[i][1] == "ascending":
+                    left = prevleft + (
+                        len(col_vals)
+                        - np.searchsorted(
+                            col_vals,
+                            desired_val,
+                            side="right",
+                            sorter=np.arange(len(col_vals) - 1, -1, -1),
+                        )
+                    )
+                    right = prevleft + (
+                        len(col_vals)
+                        - np.searchsorted(
+                            col_vals,
+                            desired_val,
+                            side="left",
+                            sorter=np.arange(len(col_vals) - 1, -1, -1),
+                        )
+                    )
+                else:
+                    left = prevleft + np.searchsorted(
+                        col_vals, desired_val, side="left"
+                    )
+                    right = prevleft + np.searchsorted(
+                        col_vals, desired_val, side="right"
+                    )
+            return right
 
         def searchsorted(table, boundaries, sort_key):
-            records = [
-                tuple(d.values())
-                for d in transform_pyarrow.to_pylist(
-                    table.select(sort_key.get_columns())
-                )
-            ]
             return [
-                find_partition_index(records, boundary, sort_key)
+                find_partition_index(table, boundary, sort_key)
                 for boundary in boundaries
             ]
 
         bounds = searchsorted(table, boundaries, sort_key)
 
-        partitions = []
         last_idx = 0
         for idx in bounds:
             partitions.append(table.slice(last_idx, idx - last_idx))

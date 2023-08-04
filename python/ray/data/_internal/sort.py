@@ -61,25 +61,23 @@ class SortKey:
                     f"Descending must be a boolean or a list of booleans, "
                     f"but got {descending}."
                 )
-            if len(set(descending)) != 1:
-                raise ValueError("Sorting with mixed key orders not supported yet.")
         self._columns = key
         self._descending = descending
 
     def get_columns(self) -> List[str]:
         return self._columns
 
-    def get_descending(self) -> bool:
-        return self._descending[0]
+    def get_descending(self) -> List[bool]:
+        return self._descending
 
     def to_arrow_sort_args(self) -> List[Tuple[str, str]]:
         return [
-            (key, "descending" if self._descending[0] else "ascending")
-            for key in self._columns
+            (key, "descending" if desc is True else "ascending")
+            for key, desc in zip(self._columns, self._descending)
         ]
 
-    def to_pandas_sort_args(self) -> Tuple[List[str], bool]:
-        return self._columns, not self._descending[0]
+    def to_pandas_sort_args(self) -> Tuple[List[str], List[bool]]:
+        return self._columns, [not desc for desc in self._descending]
 
     def validate_schema(self, schema: Optional[Union[type, "pyarrow.lib.Schema"]]):
         """Check the key function is valid on the given schema."""
@@ -206,7 +204,7 @@ def sort_impl(
     # TODO(swang): sample_boundaries could be fused with a previous stage.
     boundaries = sample_boundaries(blocks_list, sort_key, num_reducers, ctx)
     _, ascending = sort_key.to_pandas_sort_args()
-    if not ascending:
+    if not ascending[0]:
         boundaries.reverse()
 
     context = DataContext.get_current()
