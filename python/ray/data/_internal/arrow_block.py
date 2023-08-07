@@ -24,7 +24,7 @@ from ray.data._internal.numpy_support import (
     is_valid_udf_return,
 )
 from ray.data._internal.table_block import TableBlockAccessor, TableBlockBuilder
-from ray.data._internal.util import _truncated_repr
+from ray.data._internal.util import _truncated_repr, find_partitions
 from ray.data.block import (
     Block,
     BlockAccessor,
@@ -426,70 +426,7 @@ class ArrowBlockAccessor(TableBlockAccessor):
         if len(boundaries) == 0:
             return [table]
 
-        partitions = []
-        # For each boundary value, count the number of items that are less
-        # than it. Since the block is sorted, these counts partition the items
-        # such that boundaries[i] <= x < boundaries[i + 1] for each x in
-        # partition[i]. If `descending` is true, `boundaries` would also be
-        # in descending order and we only need to count the number of items
-        # *greater than* the boundary value instead.
-
-        def find_partition_index(
-            table: "pyarrow.Table", desired: List[Any], sort_key
-        ) -> int:
-            normalized_key = sort_key.to_arrow_sort_args()
-
-            left, right = 0, len(table)
-            for i in range(len(desired)):
-                if left == right:
-                    return right
-                col_name = normalized_key[i][0]
-                col_vals = table[col_name].to_numpy()[left:right]
-                desired_val = desired[i]
-
-                prevleft = left
-                if not normalized_key[i][1] == "ascending":
-                    left = prevleft + (
-                        len(col_vals)
-                        - np.searchsorted(
-                            col_vals,
-                            desired_val,
-                            side="right",
-                            sorter=np.arange(len(col_vals) - 1, -1, -1),
-                        )
-                    )
-                    right = prevleft + (
-                        len(col_vals)
-                        - np.searchsorted(
-                            col_vals,
-                            desired_val,
-                            side="left",
-                            sorter=np.arange(len(col_vals) - 1, -1, -1),
-                        )
-                    )
-                else:
-                    left = prevleft + np.searchsorted(
-                        col_vals, desired_val, side="left"
-                    )
-                    right = prevleft + np.searchsorted(
-                        col_vals, desired_val, side="right"
-                    )
-            return right
-
-        def searchsorted(table, boundaries, sort_key):
-            return [
-                find_partition_index(table, boundary, sort_key)
-                for boundary in boundaries
-            ]
-
-        bounds = searchsorted(table, boundaries, sort_key)
-
-        last_idx = 0
-        for idx in bounds:
-            partitions.append(table.slice(last_idx, idx - last_idx))
-            last_idx = idx
-        partitions.append(table.slice(last_idx))
-        return partitions
+        return find_partitions(table, boundaries, sort_key)
 
     def combine(self, key: str, aggs: Tuple["AggregateFn"]) -> Block:
         """Combine rows with the same key into an accumulator.
