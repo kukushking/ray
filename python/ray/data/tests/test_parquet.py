@@ -1070,6 +1070,30 @@ def test_parquet_read_spread(ray_start_cluster, tmp_path):
     assert set(locations) == {node1_id, node2_id}
 
 
+@pytest.mark.parametrize(
+    "fs,data_path",
+    [
+        (None, lazy_fixture("local_path")),
+        (lazy_fixture("local_fs"), lazy_fixture("local_path")),
+        (lazy_fixture("s3_fs"), lazy_fixture("s3_path")),
+        (
+            lazy_fixture("s3_fs_with_anonymous_crendential"),
+            lazy_fixture("s3_path_with_anonymous_crendential"),
+        ),
+    ],
+)
+def test_parquet_roundtrip_partitioned(fs, data_path):
+    df = pd.DataFrame({"one": list(range(6)), "two": ["a", "b", "c", "e", "f", "g"]})
+    ds = ray.data.from_pandas([df])
+
+    ds.write_parquet(data_path, partition_cols=["two"], filesystem=fs)
+
+    ds2 = ray.data.read_parquet(data_path, parallelism=2, filesystem=fs)
+    df2 = ds2.to_pandas()
+
+    assert df.equals(df2)
+
+
 if __name__ == "__main__":
     import sys
 

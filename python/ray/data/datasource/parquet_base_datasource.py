@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Dict
+from typing import TYPE_CHECKING, Any, Callable, Dict, Union
 
 from ray.data.block import BlockAccessor
 from ray.data.datasource.file_based_datasource import (
@@ -45,7 +45,7 @@ class ParquetBaseDatasource(FileBasedDatasource):
 
     def _write_block(
         self,
-        f: "pyarrow.NativeFile",
+        f: Union["pyarrow.NativeFile", str],
         block: BlockAccessor,
         writer_args_fn: Callable[[], Dict[str, Any]] = lambda: {},
         **writer_args,
@@ -53,4 +53,14 @@ class ParquetBaseDatasource(FileBasedDatasource):
         import pyarrow.parquet as pq
 
         writer_args = _resolve_kwargs(writer_args_fn, **writer_args)
-        pq.write_table(block.to_arrow(), f, **writer_args)
+        partition_cols = writer_args.pop("partition_cols")
+
+        if partition_cols:
+            pq.write_to_dataset(
+                block.to_arrow(),
+                root_path=f,
+                partition_cols=partition_cols,
+                **writer_args,
+            )
+        else:
+            pq.write_table(block.to_arrow(), f, **writer_args)
